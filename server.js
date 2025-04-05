@@ -206,8 +206,10 @@ app.use((req, res, next) => {
   GeminiConfig.apiKey = textApiKey;
   
   const voiceApiKey =  req.body?.voiceApiKey || req.headers[ "x-voice-api-key" ];
-  if(voiceApiKey) elevenLabsClient = new ElevenLabs(ElevenLabsConfig);
-  ElevenLabsConfig.apiKey = voiceApiKey;
+  if(voiceApiKey) {
+    ElevenLabsConfig.apiKey = voiceApiKey;
+    elevenLabsClient = new ElevenLabs(ElevenLabsConfig);
+  }
   
   console.log(
     "\n",
