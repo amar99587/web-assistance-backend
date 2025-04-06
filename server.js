@@ -206,7 +206,7 @@ app.use((req, res, next) => {
     { 
       method: req.method, 
       endpoint: req.url, 
-      page: req.body?.page || req.headers?.origin, 
+      page: req.body?.page, 
       text: req.body?.message?.text || req.body?.text, 
       apiKeys: ![ textApiKey, voiceApiKey ].includes(undefined),
     }, 
@@ -233,6 +233,8 @@ app.post("/chat", async (req, res) => {
 
 app.post("/textToSpeech", async (req, res) => {
   const { text } = req.body;
+  console.dir({ ElevenLabsConfig, elevenLabsClient: !!elevenLabsClient }, { depth: null });
+  
   const audioStream = await elevenLabsClient.textToSpeech(text);
   res.set("Content-Type", "audio/mpeg");
   audioStream.pipe(res);
