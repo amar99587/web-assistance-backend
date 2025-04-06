@@ -181,7 +181,7 @@ const verifyApiKeys = async ({ textApiKey, voiceApiKey }) => {
     if (textApiKeyResponse.status === 200 && textApiKeyResponse.data?.candidates?.[0]?.content) textApiKeyValid = true;
     else message += "Gemini API key invalid. ";
 
-    if (voiceApiKeyResponse) voiceApiKeyValid = true;
+    if (voiceApiKeyResponse?.detail?.status != "invalid_api_key") voiceApiKeyValid = true;
     else message += "ElevenLabs API key invalid.";
   } catch (error) {
     message += error.message || "error";
