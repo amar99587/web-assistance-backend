@@ -68,7 +68,10 @@ class ElevenLabs {
 
       return response.data;
     } catch (error) {
-      console.error("Error in textToSpeech:", error.response.config);
+      console.error("Error in textToSpeech:", { 
+        status: error.status,
+        config: error.response.config,
+       });
       return null;
     }
   };
