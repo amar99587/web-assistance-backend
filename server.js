@@ -157,7 +157,7 @@ const verifyApiKeys = async ({ textApiKey, voiceApiKey }) => {
   const verifyGeminiApiKey = async geminiApiKey => {
     if (geminiApiKey) {
       try {
-        const testUrl = `${GeminiConfig.apiUrl}${GeminiConfig.model}?key=${geminiApiKey}`;
+        const testUrl = GeminiConfig.apiUrl + GeminiConfig.model + "?key=" + geminiApiKey;
         const testPayload = {
           contents: [{ role: "user", parts: [{ text: "Test" }] }],
           generationConfig: { maxOutputTokens: 10, responseMimeType: "text/plain" }
@@ -198,7 +198,7 @@ const verifyApiKeys = async ({ textApiKey, voiceApiKey }) => {
   await verifyGeminiApiKey(textApiKey);
   await verifyEleElevenLabsApiKey(voiceApiKey);
 
-  return { validation: textApiKeyValid && voiceApiKeyValid, textApiKeyValid, voiceApiKeyValid, message };
+  return { validation: textApiKeyValid && voiceApiKeyValid, textApiKeyValid, textApiKey, voiceApiKeyValid, voiceApiKey, message };
 };
 
 app.use((req, res, next) => {
