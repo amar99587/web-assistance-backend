@@ -153,50 +153,39 @@ const verifyApiKeys = async ({ textApiKey, voiceApiKey }) => {
   let voiceApiKeyValid = false;
   let message = "";
 
-  // Verify Gemini API Key
-  const verifyGeminiApiKey = async geminiApiKey => {
-    if (geminiApiKey) {
-      try {
-        const testUrl = GeminiConfig.apiUrl + GeminiConfig.model + "?key=" + geminiApiKey;
-        const testPayload = {
-          contents: [{ role: "user", parts: [{ text: "Test" }] }],
-          generationConfig: { maxOutputTokens: 10, responseMimeType: "text/plain" }
-        };
-        const response = await axios.post(testUrl, testPayload);
-        if (response.status === 200 && response.data?.candidates?.[0]?.content) {
-          textApiKeyValid = true;
-        } else {
-          message += "Gemini API key invalid. ";
-        }
-      } catch (error) {
-        message += `Gemini API key verification failed: ${error.response?.data?.error?.message || error.message}. `;
+  const config = {
+    gemini: {
+      url: GeminiConfig.apiUrl + GeminiConfig.model + "?key=" + textApiKey,
+      body: {
+        contents: [{ role: "user", parts: [{ text: "Test" }] }],
+        generationConfig: { maxOutputTokens: 10, responseMimeType: "text/plain" }
       }
-    } else {
-      message += "Gemini API key missing. ";
+    },
+    elevenlabs: {
+      method: 'get',
+      maxBodyLength: Infinity,
+      url: 'https://api.elevenlabs.io/v1/models',
+      headers: { 
+        'Content-Type': 'application/json', 
+        'xi-api-key': voiceApiKey
+      }
     }
   };
 
-  // Verify ElevenLabs API Key
-  const verifyEleElevenLabsApiKey = async elevenLabsApiKey => {
-    if (elevenLabsApiKey) {
-      try {
-        const testClient = new ElevenLabs(ElevenLabsConfig);
-        const testResponse = await testClient.textToSpeech("text ");
-        if (testResponse) {
-          voiceApiKeyValid = true;
-        } else {
-          message += "ElevenLabs API key invalid. ";
-        }
-      } catch (error) {
-        message += `ElevenLabs API key verification failed: ${error.message}. `;
-      }
-    } else {
-      message += "ElevenLabs API key missing. ";
-    }
-  };
+  try {
+    const [ textApiKeyResponse, voiceApiKeyResponse ] = await Promise.all([
+      axios.post(config.gemini.url, config.gemini.body),
+      axios.request(config.elevenlabs)
+    ]);
 
-  await verifyGeminiApiKey(textApiKey);
-  await verifyEleElevenLabsApiKey(voiceApiKey);
+    if (textApiKeyResponse.status === 200 && textApiKeyResponse.data?.candidates?.[0]?.content) textApiKeyValid = true;
+    else message += "Gemini API key invalid. ";
+
+    if (voiceApiKeyResponse) voiceApiKeyValid = true;
+    else message += "ElevenLabs API key invalid.";
+  } catch (error) {
+    message += error.message || "error";
+  };
 
   return { validation: textApiKeyValid && voiceApiKeyValid, textApiKeyValid, textApiKey, voiceApiKeyValid, voiceApiKey, message };
 };
