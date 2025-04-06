@@ -65,9 +65,10 @@ class ElevenLabs {
         { text, model_id: this.textToSpeechModel },
         { ...this.config, responseType: "stream" }
       );
+
       return response.data;
     } catch (error) {
-      console.error("Error in textToSpeech:", error);
+      console.error("Error in textToSpeech:", error.response.config);
       return null;
     }
   };
