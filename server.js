@@ -1,5 +1,4 @@
-const { ElevenLabsClient } = require("elevenlabs");
-const { Readable } = require("stream");
+const FormData = require("form-data");
 const express = require("express");
 const multer = require("multer");
 const axios = require("axios");
@@ -12,6 +11,7 @@ app.use(express.json({ limit: "5mb" }));
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
+const form = new FormData();
 
 const GeminiConfig = {
   model: "gemini-2.0-flash:generateContent",
@@ -38,6 +38,7 @@ const GeminiConfig = {
 };
 
 const ElevenLabsConfig = {
+  url: "https://api.elevenlabs.io/v1",
   // apiKey: "sk_f85ec5be71e1984555ad8ed6b1d2126b2da6e6176b4e42db",
   textToSpeechModel: "eleven_multilingual_v2",
   speechToTextModel: "scribe_v1",
@@ -47,31 +48,24 @@ const ElevenLabsConfig = {
 const isUrl = str => /^https?:\/\//i.test(str);
 
 class ElevenLabs {
-  constructor({ apiKey, textToSpeechModel, speechToTextModel, voiceId }) {
+  constructor({ url, apiKey, voiceId, textToSpeechModel, speechToTextModel }) {
+    this.url = url;
+    this.voiceId = voiceId;
     this.textToSpeechModel = textToSpeechModel;
     this.speechToTextModel = speechToTextModel;
-    this.apiKey = apiKey;
-    this.voiceId = voiceId;
-    this.client = new ElevenLabsClient({ apiKey });
-  };
+    this.config = {
+      headers: { "xi-api-key": apiKey },
+    };
+  }
 
   textToSpeech = async text => {
     try {
-      const audioStream = await this.client.textToSpeech.convertAsStream(
-        this.voiceId,
+      const response = await axios.post(
+        this.url + "/text-to-speech/" + this.voiceId + "/stream",
         { text, model_id: this.textToSpeechModel },
-        { headers: { "xi-api-key": this.apiKey } }
+        { ...this.config, responseType: "stream" }
       );
-  
-      // option 1: play the streamed audio locally
-      // await stream(Readable.from(audioStream));
-  
-      // option 2: process the audio manually
-      // for await (const chunk of audioStream) {
-      //   console.log({ chunk });
-      // }
-  
-      return audioStream;
+      return response.data;
     } catch (error) {
       console.error("Error in textToSpeech:", error);
       return null;
@@ -80,22 +74,21 @@ class ElevenLabs {
 
   speechToText = async audioFile => {
     try {
-      const audioConfig = {
-        model_id: this.speechToTextModel
-      };
-  
-      // if audioFile is not an actual file, it can be an URL //or a file path
+      form.append("model_id", this.speechToTextModel);
+
       if (isUrl(audioFile)) {
         const response = await axios({ url: audioFile, responseType: "stream" });
-        audioConfig.file = response.data;
-      }
-      else if (Buffer.isBuffer(audioFile.buffer)) audioConfig.file = Readable.from(audioFile.buffer); // Convert buffer to stream
-      // else if (fs.existsSync(audioFile)) audioConfig.file = fs.createReadStream(audioFile);
-  
-      if (!audioConfig.file) return { text: "Audio does not exists !!" };
-  
-      const response = await this.client.speechToText.convert(audioConfig);
-      return response;
+        form.append("file", response.data);
+      } 
+      else if (Buffer.isBuffer(audioFile.buffer)) form.append("file", audioFile.buffer, { filename: "audio" });
+      else return { text: "Audio does not exist!" };
+
+      const response = await axios.post(
+        this.url + "/speech-to-text",
+        form, { ...this.config, headers: { ...this.config.headers, ...form.getHeaders() } }
+      );
+
+      return response.data;
     } catch (error) {
       console.error("Error in speechToText:", error);
       return null;
@@ -103,7 +96,7 @@ class ElevenLabs {
   };
 };
 
-let elevenLabsClient;
+const elevenLabsClient = () => new ElevenLabs(ElevenLabsConfig);
 
 const urlToBase64 = async image => {
   if (isUrl(image)) {
@@ -149,45 +142,51 @@ const chat = async ({ text, image }, messages, pageInfo) => {
 };
 
 const verifyApiKeys = async ({ textApiKey, voiceApiKey }) => {
-  let textApiKeyValid = false;
-  let voiceApiKeyValid = false;
-  let message = "";
+  const result = { textApiKeyValid: false, voiceApiKeyValid: false, message: "" };
 
-  const config = {
+  const requests = {
     gemini: {
       url: GeminiConfig.apiUrl + GeminiConfig.model + "?key=" + textApiKey,
       body: {
         contents: [{ role: "user", parts: [{ text: "Test" }] }],
-        generationConfig: { maxOutputTokens: 10, responseMimeType: "text/plain" }
+        generationConfig: { maxOutputTokens: 10, responseMimeType: "text/plain" },
       }
     },
     elevenlabs: {
-      method: 'get',
-      maxBodyLength: Infinity,
-      url: 'https://api.elevenlabs.io/v1/models',
-      headers: { 
-        'Content-Type': 'application/json', 
-        'xi-api-key': voiceApiKey
-      }
-    }
+      url: "https://api.elevenlabs.io/v1/models",
+      config: { headers: { "xi-api-key": voiceApiKey } },
+    },
   };
 
   try {
-    const [ textApiKeyResponse, voiceApiKeyResponse ] = await Promise.all([
-      axios.post(config.gemini.url, config.gemini.body),
-      axios.request(config.elevenlabs)
+    const [ geminiRes, elevenLabsRes ] = await Promise.all([
+      axios.post(requests.gemini.url, requests.gemini.body).catch(error => ({
+        error: "Gemini API key verification failed: " + error.response?.data?.error?.message || error.message,
+      })),
+      axios.get(requests.elevenlabs.url, requests.elevenlabs.config).catch(error => ({
+        error: "ElevenLabs API key verification failed: " + error.message,
+      })),
     ]);
 
-    if (textApiKeyResponse.status === 200 && textApiKeyResponse.data?.candidates?.[0]?.content) textApiKeyValid = true;
-    else message += "Gemini API key invalid. ";
-
-    if (voiceApiKeyResponse?.detail?.status != "invalid_api_key") voiceApiKeyValid = true;
-    else message += "ElevenLabs API key invalid.";
+    result.textApiKeyValid = geminiRes?.status === 200 && !!geminiRes.data?.candidates?.[0]?.content;
+    result.voiceApiKeyValid = elevenLabsRes?.status === 200;
+    result.message = [
+      geminiRes?.error || (!result.textApiKeyValid && "Gemini API key invalid."),
+      elevenLabsRes?.error || (!result.voiceApiKeyValid && "ElevenLabs API key invalid."),
+    ].filter(Boolean).join(" - ").trim();
   } catch (error) {
-    message += error.message || "error";
-  };
+    console.log(error);    
+    result.message = "can't verify keys";
+  }
 
-  return { validation: textApiKeyValid && voiceApiKeyValid, textApiKeyValid, textApiKey, voiceApiKeyValid, voiceApiKey, message };
+  return {
+    validation: result.textApiKeyValid && result.voiceApiKeyValid,
+    textApiKey,
+    textApiKeyValid: result.textApiKeyValid,
+    voiceApiKey,
+    voiceApiKeyValid: result.voiceApiKeyValid,
+    message: result.message,
+  };
 };
 
 app.use((req, res, next) => {
@@ -195,10 +194,7 @@ app.use((req, res, next) => {
   GeminiConfig.apiKey = textApiKey;
   
   const voiceApiKey =  req.body?.voiceApiKey || req.headers[ "x-voice-api-key" ];
-  if(voiceApiKey) {
-    ElevenLabsConfig.apiKey = voiceApiKey;
-    elevenLabsClient = new ElevenLabs(ElevenLabsConfig);
-  }
+  ElevenLabsConfig.apiKey = voiceApiKey;
   
   console.log(
     "\n",
@@ -219,9 +215,6 @@ app.use((req, res, next) => {
 app.post("/verifyApiKeys", async (req, res) => {
   const { textApiKey, voiceApiKey } = req.body;
   const result = await verifyApiKeys({ textApiKey, voiceApiKey });
-  console.log("API keys verification result: ");
-  console.dir(result, { depth: null });
-  
   res.send({ success: result.validation, result });
 });
 
@@ -233,16 +226,16 @@ app.post("/chat", async (req, res) => {
 
 app.post("/textToSpeech", async (req, res) => {
   const { text } = req.body;
-  console.dir({ ElevenLabsConfig, elevenLabsClient: !!elevenLabsClient }, { depth: null });
-  
-  const audioStream = await elevenLabsClient.textToSpeech(text);
+  const result = await elevenLabsClient().textToSpeech(text);
+  if (!result) return res.status(500).send("Text-to-speech failed");
   res.set("Content-Type", "audio/mpeg");
-  audioStream.pipe(res);
+  result.pipe(res);
 });
 
 app.post("/speechToText", upload.single("audioFile"), async (req, res) => {
   if (!req.file && !req.body?.audioFile) res.status(400).send("No file uploaded.");
-  const result = await elevenLabsClient.speechToText(req.file || req.body.audioFile);
+  const result = await elevenLabsClient().speechToText(req.file || req.body.audioFile);
+  if (!result) return res.status(500).send("Speech-to-text failed");
   res.send(result?.text);
 });
 
