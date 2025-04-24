@@ -196,6 +196,8 @@ const verifyApiKeys = async ({ textApiKey }) => {
   };
 };
 
+app.get("/wakeup", async (req, res) => res.send());
+
 app.use((req, res, next) => {
   const textApiKey = req.body?.textApiKey || req.headers[ "x-text-api-key" ];
   GeminiConfig.apiKey = textApiKey;
